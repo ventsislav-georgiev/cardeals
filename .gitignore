@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*_cache/
+*.pyc
+
+# Output files
+results.json
+output.json
+car_results*.json
+cardeals.json
+cardeals.db
+
+# Debug files
+*_debug.html
+*_debug.txt
+debug_*.html
+debug_*.txt
+mobile_bg_debug.html
+mobile_de_debug.html
+
+# Logs
+*.log
+
+# Don't ignore test files - we want them in the repo
+# test_*.py
+# *_test.py

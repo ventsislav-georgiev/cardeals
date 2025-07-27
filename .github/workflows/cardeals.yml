@@ -1,0 +1,70 @@
+name: Cardeals
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Every day at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  scrape-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download previous cardeals.db artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cardeals-db
+          path: .
+        continue-on-error: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Run tests
+        run: |
+          python3 test_cardeals.py
+
+      - name: Run cardeals scraper and update DB
+        run: |
+          python3 cardeals.py --use-db --sites mobile.bg --verbose ${{ vars.CAR_PARAMS }}
+
+      - name: Export cars.json for GitHub Pages
+        run: |
+          python3 cardeals.py --print-db > docs/cars.json
+
+      - name: Upload updated cardeals.db as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardeals-db
+          path: cardeals.db
+
+      - name: Commit and push changes to cars.json
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/cars.json || true
+          git commit -m 'feat: update cars.json [auto]' || echo 'No changes to commit'
+          git push || echo 'No changes to push'
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs

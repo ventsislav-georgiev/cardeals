@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Car Deals - All Cars</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #111; color: #fff; margin: 0; padding: 0; }
+    .container { max-width: 1100px; margin: 40px auto; background: #181818; border-radius: 10px; box-shadow: 0 2px 16px #0008; padding: 28px; }
+    h1 { text-align: center; margin-bottom: 18px; }
+    .sort-bar { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 18px; }
+    .sort-label { margin-right: 8px; font-size: 1em; color: #ccc; }
+    .sort-select { background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 4px 10px; font-size: 1em; }
+    .car-list { display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; }
+    .car-card {
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 8px;
+      width: 270px;
+      padding: 16px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: box-shadow 0.2s, border 0.2s, background 0.2s;
+      color: #fff;
+    }
+    .car-card.removed {
+      border: 2px solid #e53935;
+      background: #2a1818;
+      opacity: 0.7;
+    }
+    .car-card.removed .car-title,
+    .car-card.removed .car-info,
+    .car-card.removed .car-status {
+      color: #ffbdbd;
+    }
+    .car-img { width: 240px; height: 160px; object-fit: cover; border-radius: 6px; margin-bottom: 12px; background: #333; }
+    .car-title {
+      font-size: 1.1em;
+      font-weight: bold;
+      margin-bottom: 6px;
+      text-align: center;
+      color: #fff;
+      word-break: break-word;
+      white-space: pre-line;
+      overflow-wrap: anywhere;
+    }
+    .car-info { font-size: 0.97em; color: #eee; margin-bottom: 8px; text-align: center; }
+    .car-link { color: #4fc3f7; text-decoration: none; font-size: 0.97em; }
+    .car-link:hover { text-decoration: underline; }
+    .car-status { font-size: 0.9em; color: #aaa; margin-top: 4px; }
+    .car-year { color: #ff9800; }
+    .car-price { color: #4fc3f7; font-weight: bold; font-size: 1.05em; }
+    .car-km-excellent { color: #4caf50; font-weight: bold; } /* 0-50k - Green */
+    .car-km-good { color: #8bc34a; font-weight: bold; } /* 50k-100k - Light Green */
+    .car-km-fair { color: #ff9800; font-weight: bold; } /* 100k-150k - Orange */
+    .car-km-high { color: #ff5722; font-weight: bold; } /* 150k-200k - Red Orange */
+    .car-km-very-high { color: #f44336; font-weight: bold; } /* 200k+ - Red */
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>All Cars in Database</h1>
+    <div class="sort-bar">
+      <label class="sort-label" for="year-filter">Min Year:</label>
+      <select class="sort-select" id="year-filter">
+        <option value="all">All</option>
+        <option value="2020">2020</option>
+        <option value="2021">2021</option>
+        <option value="2022">2022</option>
+        <option value="2023">2023</option>
+        <option value="2024">2024</option>
+      </select>
+      <label class="sort-label" for="sort-by" style="margin-left: 20px;">Sort by:</label>
+      <select class="sort-select" id="sort-by">
+        <option value="price">Price</option>
+        <option value="year">Year</option>
+        <option value="kilometers">Kilometers</option>
+      </select>
+    </div>
+    <div class="car-list" id="car-list"></div>
+  </div>
+  <script>
+    let allCars = [];
+    let currentSort = 'price';
+    let currentYearFilter = 'all';
+    const list = document.getElementById('car-list');
+    const sortSelect = document.getElementById('sort-by');
+    const yearFilterSelect = document.getElementById('year-filter');
+
+    // Function to get URL parameters
+    function getUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        sort: params.get('sort') || 'price',
+        year: params.get('year') || 'all'
+      };
+    }
+
+    // Function to update URL with current parameters
+    function updateUrl() {
+      const params = new URLSearchParams();
+      if (currentSort !== 'price') {
+        params.set('sort', currentSort);
+      }
+      if (currentYearFilter !== 'all') {
+        params.set('year', currentYearFilter);
+      }
+      
+      const newUrl = params.toString() ? 
+        `${window.location.pathname}?${params.toString()}` : 
+        window.location.pathname;
+      
+      window.history.replaceState({}, '', newUrl);
+    }
+
+    // Initialize from URL parameters
+    function initializeFromUrl() {
+      const urlParams = getUrlParams();
+      currentSort = urlParams.sort;
+      currentYearFilter = urlParams.year;
+      
+      // Set dropdown values
+      sortSelect.value = currentSort;
+      yearFilterSelect.value = currentYearFilter;
+    }
+
+    function filterCarsByYear(cars, yearFilter) {
+      if (yearFilter === 'all') {
+        return cars;
+      }
+      const filterYear = parseInt(yearFilter);
+      return cars.filter(car => {
+        const carYear = parseInt(car.year);
+        return !isNaN(carYear) && carYear >= filterYear;
+      });
+    }
+
+    function getKilometerColorClass(kilometers) {
+      if (!kilometers) return '';
+      
+      const km = parseInt(kilometers.toString().replace(/\D/g, ''));
+      if (isNaN(km)) return '';
+      
+      if (km <= 100000) return 'car-km-excellent';
+      if (km <= 160000) return 'car-km-good';
+      if (km <= 220000) return 'car-km-fair';
+      if (km <= 250000) return 'car-km-high';
+      return 'car-km-very-high';
+    }
+
+    function formatKilometers(kilometers) {
+      if (!kilometers) return '';
+      
+      // Extract numeric value from the string
+      const numericValue = kilometers.toString().replace(/\D/g, '');
+      if (!numericValue) return kilometers;
+      
+      const km = parseInt(numericValue);
+      if (isNaN(km)) return kilometers;
+      
+      // Add comma separators for thousands
+      return km.toLocaleString();
+    }
+
+    function renderCars(cars) {
+      list.innerHTML = '';
+      if (!cars.length) {
+        list.innerHTML = '<p>No cars found in the database.</p>';
+        return;
+      }
+      cars.forEach(car => {
+        const card = document.createElement('div');
+        card.className = 'car-card' + (car.status === 'removed' ? ' removed' : '');
+        const img = document.createElement('img');
+        img.className = 'car-img';
+        img.src = (car.image_urls && car.image_urls.length) ? car.image_urls[0] : '';
+        img.alt = (car.brand || '') + ' ' + (car.model || '');
+        card.appendChild(img);
+        const title = document.createElement('div');
+        title.className = 'car-title';
+        // Create title with orange year
+        const brand = car.brand || '';
+        const model = car.model || '';
+        const year = car.year || '';
+        
+        let titleHtml = `${brand} ${model}`.trim();
+        if (year) {
+          titleHtml += ` <span class="car-year">${year}</span>`;
+        }
+        
+        // Split long titles into multiple lines (max 30 chars per line) - but preserve HTML
+        if (titleHtml.length > 30) {
+          // For long titles, we'll let CSS handle the wrapping
+          title.innerHTML = titleHtml;
+        } else {
+          title.innerHTML = titleHtml;
+        }
+        card.appendChild(title);
+        const info = document.createElement('div');
+        info.className = 'car-info';
+        const kmColorClass = getKilometerColorClass(car.kilometers);
+        const formattedKm = formatKilometers(car.kilometers);
+        info.innerHTML =
+          (car.price ? `<b>Price:</b> <span class="car-price">${car.price} ${car.currency || ''}</span><br>` : '') +
+          (car.kilometers ? `<b>KM:</b> <span class="${kmColorClass}">${formattedKm}</span><br>` : '') +
+          // (car.engine_type ? `<b>Engine:</b> ${car.engine_type}<br>` : '') +
+          // (car.gearbox_type ? `<b>Gearbox:</b> ${car.gearbox_type}<br>` : '') +
+          (car.location ? `<b>Location:</b> ${car.location}<br>` : '') +
+          (car.created_date ? `<b>Created:</b> ${car.created_date.split(' ')[0]}<br>` : '') +
+          (car.removed_date ? `<b>Removed:</b> ${car.removed_date}<br>` : '');
+        card.appendChild(info);
+        if (car.listing_url) {
+          const link = document.createElement('a');
+          link.className = 'car-link';
+          link.href = car.listing_url;
+          link.target = '_blank';
+          link.textContent = 'View Listing';
+          card.appendChild(link);
+        }
+        if (car.status) {
+          const status = document.createElement('div');
+          status.className = 'car-status';
+          status.textContent = `Status: ${car.status}`;
+          card.appendChild(status);
+        }
+        list.appendChild(card);
+      });
+    }
+
+    function sortCars(cars, by) {
+      return cars.slice().sort((a, b) => {
+        let va = a[by] ?? Infinity;
+        let vb = b[by] ?? Infinity;
+        if (typeof va === 'string') va = parseInt(va.replace(/\D/g, '')) || Infinity;
+        if (typeof vb === 'string') vb = parseInt(vb.replace(/\D/g, '')) || Infinity;
+        return va - vb;
+      });
+    }
+
+    function updateCarDisplay() {
+      const filteredCars = filterCarsByYear(allCars, currentYearFilter);
+      const sortedCars = sortCars(filteredCars, currentSort);
+      renderCars(sortedCars);
+      updateUrl();
+    }
+
+    // Initialize from URL parameters
+    initializeFromUrl();
+
+    fetch('cars.json')
+      .then(r => r.json())
+      .then(data => {
+        allCars = data.cars || [];
+        updateCarDisplay();
+      });
+
+    sortSelect.addEventListener('change', function() {
+      currentSort = sortSelect.value;
+      updateCarDisplay();
+    });
+
+    yearFilterSelect.addEventListener('change', function() {
+      currentYearFilter = yearFilterSelect.value;
+      updateCarDisplay();
+    });
+
+    // Handle browser back/forward buttons
+    window.addEventListener('popstate', function() {
+      initializeFromUrl();
+      updateCarDisplay();
+    });
+  </script>
+</body>
+</html>
