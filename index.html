@@ -49,13 +49,29 @@
     .car-link { color: #4fc3f7; text-decoration: none; font-size: 0.97em; }
     .car-link:hover { text-decoration: underline; }
     .car-status { font-size: 0.9em; color: #aaa; margin-top: 4px; }
+    .car-year { color: #ff9800; }
+    .car-price { color: #4fc3f7; font-weight: bold; font-size: 1.05em; }
+    .car-km-excellent { color: #4caf50; font-weight: bold; } /* 0-50k - Green */
+    .car-km-good { color: #8bc34a; font-weight: bold; } /* 50k-100k - Light Green */
+    .car-km-fair { color: #ff9800; font-weight: bold; } /* 100k-150k - Orange */
+    .car-km-high { color: #ff5722; font-weight: bold; } /* 150k-200k - Red Orange */
+    .car-km-very-high { color: #f44336; font-weight: bold; } /* 200k+ - Red */
   </style>
 </head>
 <body>
   <div class="container">
     <h1>All Cars in Database</h1>
     <div class="sort-bar">
-      <label class="sort-label" for="sort-by">Sort by:</label>
+      <label class="sort-label" for="year-filter">Min Year:</label>
+      <select class="sort-select" id="year-filter">
+        <option value="all">All</option>
+        <option value="2020">2020</option>
+        <option value="2021">2021</option>
+        <option value="2022">2022</option>
+        <option value="2023">2023</option>
+        <option value="2024">2024</option>
+      </select>
+      <label class="sort-label" for="sort-by" style="margin-left: 20px;">Sort by:</label>
       <select class="sort-select" id="sort-by">
         <option value="price">Price</option>
         <option value="year">Year</option>
@@ -67,8 +83,85 @@
   <script>
     let allCars = [];
     let currentSort = 'price';
+    let currentYearFilter = 'all';
     const list = document.getElementById('car-list');
     const sortSelect = document.getElementById('sort-by');
+    const yearFilterSelect = document.getElementById('year-filter');
+
+    // Function to get URL parameters
+    function getUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        sort: params.get('sort') || 'price',
+        year: params.get('year') || 'all'
+      };
+    }
+
+    // Function to update URL with current parameters
+    function updateUrl() {
+      const params = new URLSearchParams();
+      if (currentSort !== 'price') {
+        params.set('sort', currentSort);
+      }
+      if (currentYearFilter !== 'all') {
+        params.set('year', currentYearFilter);
+      }
+      
+      const newUrl = params.toString() ? 
+        `${window.location.pathname}?${params.toString()}` : 
+        window.location.pathname;
+      
+      window.history.replaceState({}, '', newUrl);
+    }
+
+    // Initialize from URL parameters
+    function initializeFromUrl() {
+      const urlParams = getUrlParams();
+      currentSort = urlParams.sort;
+      currentYearFilter = urlParams.year;
+      
+      // Set dropdown values
+      sortSelect.value = currentSort;
+      yearFilterSelect.value = currentYearFilter;
+    }
+
+    function filterCarsByYear(cars, yearFilter) {
+      if (yearFilter === 'all') {
+        return cars;
+      }
+      const filterYear = parseInt(yearFilter);
+      return cars.filter(car => {
+        const carYear = parseInt(car.year);
+        return !isNaN(carYear) && carYear >= filterYear;
+      });
+    }
+
+    function getKilometerColorClass(kilometers) {
+      if (!kilometers) return '';
+      
+      const km = parseInt(kilometers.toString().replace(/\D/g, ''));
+      if (isNaN(km)) return '';
+      
+      if (km <= 100000) return 'car-km-excellent';
+      if (km <= 160000) return 'car-km-good';
+      if (km <= 220000) return 'car-km-fair';
+      if (km <= 250000) return 'car-km-high';
+      return 'car-km-very-high';
+    }
+
+    function formatKilometers(kilometers) {
+      if (!kilometers) return '';
+      
+      // Extract numeric value from the string
+      const numericValue = kilometers.toString().replace(/\D/g, '');
+      if (!numericValue) return kilometers;
+      
+      const km = parseInt(numericValue);
+      if (isNaN(km)) return kilometers;
+      
+      // Add comma separators for thousands
+      return km.toLocaleString();
+    }
 
     function renderCars(cars) {
       list.innerHTML = '';
@@ -86,18 +179,33 @@
         card.appendChild(img);
         const title = document.createElement('div');
         title.className = 'car-title';
-        // Split long titles into multiple lines (max 30 chars per line)
-        let fullTitle = `${car.brand || ''} ${car.model || ''} ${car.year || ''}`.trim();
-        let splitTitle = fullTitle.match(/.{1,30}(\s|$)/g)?.join('\n') || fullTitle;
-        title.textContent = splitTitle;
+        // Create title with orange year
+        const brand = car.brand || '';
+        const model = car.model || '';
+        const year = car.year || '';
+        
+        let titleHtml = `${brand} ${model}`.trim();
+        if (year) {
+          titleHtml += ` <span class="car-year">${year}</span>`;
+        }
+        
+        // Split long titles into multiple lines (max 30 chars per line) - but preserve HTML
+        if (titleHtml.length > 30) {
+          // For long titles, we'll let CSS handle the wrapping
+          title.innerHTML = titleHtml;
+        } else {
+          title.innerHTML = titleHtml;
+        }
         card.appendChild(title);
         const info = document.createElement('div');
         info.className = 'car-info';
+        const kmColorClass = getKilometerColorClass(car.kilometers);
+        const formattedKm = formatKilometers(car.kilometers);
         info.innerHTML =
-          (car.price ? `<b>Price:</b> ${car.price} ${car.currency || ''}<br>` : '') +
-          (car.kilometers ? `<b>KM:</b> ${car.kilometers}<br>` : '') +
-          (car.engine_type ? `<b>Engine:</b> ${car.engine_type}<br>` : '') +
-          (car.gearbox_type ? `<b>Gearbox:</b> ${car.gearbox_type}<br>` : '') +
+          (car.price ? `<b>Price:</b> <span class="car-price">${car.price} ${car.currency || ''}</span><br>` : '') +
+          (car.kilometers ? `<b>KM:</b> <span class="${kmColorClass}">${formattedKm}</span><br>` : '') +
+          // (car.engine_type ? `<b>Engine:</b> ${car.engine_type}<br>` : '') +
+          // (car.gearbox_type ? `<b>Gearbox:</b> ${car.gearbox_type}<br>` : '') +
           (car.location ? `<b>Location:</b> ${car.location}<br>` : '') +
           (car.created_date ? `<b>Created:</b> ${car.created_date.split(' ')[0]}<br>` : '') +
           (car.removed_date ? `<b>Removed:</b> ${car.removed_date}<br>` : '');
@@ -130,16 +238,37 @@
       });
     }
 
+    function updateCarDisplay() {
+      const filteredCars = filterCarsByYear(allCars, currentYearFilter);
+      const sortedCars = sortCars(filteredCars, currentSort);
+      renderCars(sortedCars);
+      updateUrl();
+    }
+
+    // Initialize from URL parameters
+    initializeFromUrl();
+
     fetch('cars.json')
       .then(r => r.json())
       .then(data => {
         allCars = data.cars || [];
-        renderCars(sortCars(allCars, currentSort));
+        updateCarDisplay();
       });
 
     sortSelect.addEventListener('change', function() {
       currentSort = sortSelect.value;
-      renderCars(sortCars(allCars, currentSort));
+      updateCarDisplay();
+    });
+
+    yearFilterSelect.addEventListener('change', function() {
+      currentYearFilter = yearFilterSelect.value;
+      updateCarDisplay();
+    });
+
+    // Handle browser back/forward buttons
+    window.addEventListener('popstate', function() {
+      initializeFromUrl();
+      updateCarDisplay();
     });
   </script>
 </body>
