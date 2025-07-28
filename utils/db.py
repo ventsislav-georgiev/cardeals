@@ -37,6 +37,7 @@ def upsert_car(link: str, data: str, status: str = 'active'):
     car_id = hash_link(link)
     conn = get_db_connection()
     c = conn.cursor()
+    
     if status == 'active':
         c.execute('''
             INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
@@ -45,18 +46,17 @@ def upsert_car(link: str, data: str, status: str = 'active'):
                 data=excluded.data,
                 status=excluded.status,
                 last_seen=CURRENT_TIMESTAMP,
-                removed_date=NULL,
-                created_date=COALESCE(cars.created_date, CURRENT_TIMESTAMP)
+                removed_date=NULL
         ''', (car_id, link, data, status))
     else:
         c.execute('''
             INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 data=excluded.data,
                 status=excluded.status,
                 last_seen=CURRENT_TIMESTAMP,
-                created_date=COALESCE(cars.created_date, CURRENT_TIMESTAMP)
+                removed_date=CURRENT_TIMESTAMP
         ''', (car_id, link, data, status))
     conn.commit()
     conn.close()
