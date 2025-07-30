@@ -36,6 +36,7 @@ class Car:
     listing_url: Optional[str] = None
     image_urls: Optional[list] = None
     description: Optional[str] = None
+    created_date: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert the Car object to a dictionary for JSON serialization"""
@@ -56,7 +57,8 @@ class Car:
             'source_site': self.source_site,
             'listing_url': self.listing_url,
             'image_urls': self.image_urls or [],
-            'description': self.description
+            'description': self.description,
+            'created_date': self.created_date
         }
     
     @classmethod

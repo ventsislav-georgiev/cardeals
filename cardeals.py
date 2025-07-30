@@ -62,16 +62,14 @@ def main(brand, model, year_start, price_max, km_max, engine_type, gearbox_type,
         rows = cardb.get_all_cars()
         cars = []
         for row in rows:
-            # id, link, data, status, last_seen, removed_date, created_date
-            car_id, link, data, status, last_seen, removed_date, created_date = row
             try:
-                car_dict = json.loads(data)
+                car_dict = json.loads(row['data'])
             except Exception:
                 car_dict = {}
-            car_dict['status'] = status
-            car_dict['last_seen'] = last_seen
-            car_dict['removed_date'] = removed_date
-            car_dict['created_date'] = created_date
+            car_dict['status'] = row['status']
+            car_dict['last_seen'] = row['last_seen']
+            car_dict['removed_date'] = row['removed_date']
+            car_dict['created_date'] = row['created_date']
             cars.append(car_dict)
         results = {
             'search_params': {},
@@ -89,7 +87,7 @@ def main(brand, model, year_start, price_max, km_max, engine_type, gearbox_type,
         click.echo("❌ Error: --brand is required unless --print-db or --clear-db is used.", err=True)
         sys.exit(1)
 
-    scraper = MobileBgScraper()
+    scraper = MobileBgScraper(verbose=verbose)
 
     # Prepare search parameters
     search_params = {
@@ -104,9 +102,8 @@ def main(brand, model, year_start, price_max, km_max, engine_type, gearbox_type,
     search_params = {k: v for k, v in search_params.items() if v is not None}
 
     search_url = scraper.build_search_url(search_params)
-    click.echo(f"[INFO] Search URL: {search_url}", err=True)
-
     if verbose:
+        click.echo(f"[INFO] Search URL: {search_url}", err=True)
         click.echo(f"🚗 Starting car search for {brand} {model or ''}", err=True)
 
     try:
@@ -119,20 +116,23 @@ def main(brand, model, year_start, price_max, km_max, engine_type, gearbox_type,
                 unique[car.listing_url] = car
         deduped_cars = list(unique.values())
 
-        click.echo(f"INFO - Completed scraping. Total unique cars found: {len(deduped_cars)}", err=True)
+        if verbose:
+            click.echo(f"INFO - Completed scraping. Total unique cars found: {len(deduped_cars)}", err=True)
 
         # DB logic
         if use_db:
             cardb.init_db()
             # Store/update all found cars
             for car in deduped_cars:
-                cardb.upsert_car(car.listing_url, json.dumps(car.to_dict(), ensure_ascii=False), status='active')
+                cardb.upsert_car(car.listing_url, json.dumps(car.to_dict(), ensure_ascii=False), status='active', created_date=car.created_date)
             # Mark as removed any cars in DB that are not in current scrape
-            db_links = set(row[1] for row in cardb.get_all_cars())
+            db_links = set(row['link'] for row in cardb.get_all_cars())
             scraped_links = set(car.listing_url for car in deduped_cars if car.listing_url)
             removed_links = db_links - scraped_links
             for link in removed_links:
                 cardb.mark_removed(link)
+            if verbose:
+                click.echo(f"[DB] Updated {len(deduped_cars)} cars, marked {len(removed_links)} as removed.", err=True)
 
         results = {
             'search_params': search_params,

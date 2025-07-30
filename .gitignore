@@ -49,7 +49,6 @@ results.json
 output.json
 car_results*.json
 cardeals.json
-cardeals.db
 
 # Debug files
 *_debug.html

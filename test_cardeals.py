@@ -367,6 +367,18 @@ class TestRealScraping(unittest.TestCase):
                 print(f"Location: {first_car.location}")
                 print(f"URL: {first_car.listing_url}")
                 
+                # Assert created_date extraction
+                print(f"Created date: {first_car.created_date}")
+                self.assertIsNotNone(first_car.created_date, "created_date should not be None")
+                self.assertNotEqual(first_car.created_date, "", "created_date should not be empty")
+                import re
+                # Accept YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
+                self.assertRegex(
+                    str(first_car.created_date),
+                    r"^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$",
+                    f"created_date format invalid: {first_car.created_date}"
+                )
+                
                 # Validate search criteria matching
                 if first_car.brand:
                     self.assertIn('mercedes', first_car.brand.lower())

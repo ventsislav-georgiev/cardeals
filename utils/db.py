@@ -1,7 +1,7 @@
 import sqlite3
 import hashlib
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 DB_PATH = './cardeals.db'
 
@@ -33,31 +33,52 @@ def clear_db():
 def hash_link(link: str) -> str:
     return hashlib.sha256(link.encode('utf-8')).hexdigest()
 
-def upsert_car(link: str, data: str, status: str = 'active'):
+def upsert_car(link: str, data: str, status: str = 'active', created_date: Optional[str] = None):
     car_id = hash_link(link)
     conn = get_db_connection()
     c = conn.cursor()
-    
     if status == 'active':
-        c.execute('''
-            INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-                data=excluded.data,
-                status=excluded.status,
-                last_seen=CURRENT_TIMESTAMP,
-                removed_date=NULL
-        ''', (car_id, link, data, status))
+        if created_date:
+            c.execute('''
+                INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    data=excluded.data,
+                    status=excluded.status,
+                    last_seen=CURRENT_TIMESTAMP,
+                    removed_date=NULL
+            ''', (car_id, link, data, status, created_date))
+        else:
+            c.execute('''
+                INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, NULL)
+                ON CONFLICT(id) DO UPDATE SET
+                    data=excluded.data,
+                    status=excluded.status,
+                    last_seen=CURRENT_TIMESTAMP,
+                    removed_date=NULL
+            ''', (car_id, link, data, status))
     else:
-        c.execute('''
-            INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-                data=excluded.data,
-                status=excluded.status,
-                last_seen=CURRENT_TIMESTAMP,
-                removed_date=CURRENT_TIMESTAMP
-        ''', (car_id, link, data, status))
+        if created_date:
+            c.execute('''
+                INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    data=excluded.data,
+                    status=excluded.status,
+                    last_seen=CURRENT_TIMESTAMP,
+                    removed_date=CURRENT_TIMESTAMP
+            ''', (car_id, link, data, status, created_date))
+        else:
+            c.execute('''
+                INSERT INTO cars (id, link, data, status, last_seen, removed_date, created_date)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)
+                ON CONFLICT(id) DO UPDATE SET
+                    data=excluded.data,
+                    status=excluded.status,
+                    last_seen=CURRENT_TIMESTAMP,
+                    removed_date=CURRENT_TIMESTAMP
+            ''', (car_id, link, data, status))
     conn.commit()
     conn.close()
 
@@ -79,4 +100,6 @@ def get_all_cars():
     c.execute('SELECT id, link, data, status, last_seen, removed_date, created_date FROM cars')
     rows = c.fetchall()
     conn.close()
-    return rows
+    # Return as list of dicts for easier test assertions
+    keys = ['id', 'link', 'data', 'status', 'last_seen', 'removed_date', 'created_date']
+    return [dict(zip(keys, row)) for row in rows]

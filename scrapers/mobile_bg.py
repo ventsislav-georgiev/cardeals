@@ -11,6 +11,9 @@ from scrapers.base import BaseScraper
 
 
 class MobileBgScraper(BaseScraper):
+    def __init__(self, verbose: bool = False):
+        super().__init__()
+        self.verbose = verbose
     """Scraper for mobile.bg car listings"""
 
     BASE_URL = "https://mobile.bg"
@@ -116,7 +119,8 @@ class MobileBgScraper(BaseScraper):
         if query_params:
             url += "?" + urlencode(query_params)
         
-        self.logger.debug(f"Built mobile.bg search URL: {url}")
+        if self.verbose:
+            self.logger.debug(f"Built mobile.bg search URL: {url}")
         return url
     
     def get_total_pages(self, soup: BeautifulSoup) -> int:
@@ -159,10 +163,10 @@ class MobileBgScraper(BaseScraper):
             return 1
     
     def parse_listing_page(self, soup: BeautifulSoup, page_num: int = 1) -> List[Car]:
-        """Parse a listing page and extract car information"""
+        """Parse a listing page and extract car information, then crawl each car's detail page for created date"""
+        import requests
         cars = []
         try:
-            # Try common mobile.bg selectors for car listings
             selectors = [
                 'div.l',
                 'div.o',
@@ -177,25 +181,21 @@ class MobileBgScraper(BaseScraper):
                 found = soup.select(sel)
                 if found:
                     items.extend(found)
-            # Remove duplicates
             items = list(dict.fromkeys(items))
             if not items:
-                # Fallback: look for any div that looks like a car listing
                 all_divs = soup.find_all('div')
                 items = [div for div in all_divs if self._looks_like_car_listing(div)]
-            self.logger.info(f"[mobile.bg] Found {len(items)} car listing divs on page {page_num}")
-            # Print first 3 titles for debug
-            for i, item in enumerate(items[:3]):
-                title = item.get_text(strip=True)[:120]
-                self.logger.info(f"[mobile.bg] Example listing {i+1}: {title}")
-            # Filter out divs with class 'resultsInfoBox'
+            if self.verbose:
+                self.logger.info(f"[mobile.bg] Found {len(items)} car listing divs on page {page_num}")
+                for i, item in enumerate(items[:3]):
+                    title = item.get_text(strip=True)[:120]
+                    self.logger.info(f"[mobile.bg] Example listing {i+1}: {title}")
             filtered_items = [item for item in items if not (
                 'resultsInfoBox' in item.get('class', []) or
                 'paramsFromSearchText' in item.get('class', []) or
                 item.get('id', '') == 'paramsFromSearchText'
             )]
-            # Save the HTML of the first 5 filtered divs for inspection
-            if filtered_items:
+            if self.verbose and filtered_items:
                 try:
                     with open("debug_first_listing.html", "w", encoding="utf-8") as f:
                         for i, div in enumerate(filtered_items[:5]):
@@ -205,10 +205,8 @@ class MobileBgScraper(BaseScraper):
                     self.logger.info("[mobile.bg] Saved first 5 real car listing candidates to debug_first_listing.html")
                 except Exception as e:
                     self.logger.warning(f"[mobile.bg] Could not save debug_first_listing.html: {e}")
-            # Use filtered_items for parsing
             items = filtered_items
-            if not items:
-                # Print first 10 divs' class names and text snippets for debugging (stdout)
+            if self.verbose and not items:
                 all_divs = soup.find_all('div')
                 print("\n[DEBUG] First 10 <div> elements on the page (full HTML):", flush=True)
                 for i, div in enumerate(all_divs[:10]):
@@ -216,22 +214,71 @@ class MobileBgScraper(BaseScraper):
             for item in items:
                 try:
                     car = self.parse_car_item(item)
-                    if car:
+                    if car and car.listing_url:
+                        # Crawl detail page for created date
+                        try:
+                            detail_resp = requests.get(car.listing_url, timeout=10)
+                            if detail_resp.status_code == 200:
+                                detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
+                                created_date = self.extract_created_date(detail_soup)
+                                car.created_date = created_date if created_date else None
+                        except Exception as e:
+                            self.logger.warning(f"Could not fetch detail page for {car.listing_url}: {e}")
                         cars.append(car)
                 except Exception as e:
                     self.logger.warning(f"Error parsing car item: {str(e)}")
                     continue
         except Exception as e:
             self.logger.error(f"Error parsing listing page {page_num}: {str(e)}")
-        # Deduplicate by listing_url
         unique = {}
         for car in cars:
             if car.listing_url and car.listing_url not in unique:
                 unique[car.listing_url] = car
         deduped_cars = list(unique.values())
-        self.logger.info(f"[mobile.bg] Successfully parsed {len(deduped_cars)} unique cars from page {page_num}")
+        if self.verbose:
+            self.logger.info(f"[mobile.bg] Successfully parsed {len(deduped_cars)} unique cars from page {page_num}")
         return deduped_cars
-    
+
+    def extract_created_date(self, soup: BeautifulSoup) -> Optional[str]:
+        """Extract the created/edited date from the car detail page HTML. Returns None if not found."""
+        import re
+        statistiki = None
+        for div in soup.find_all('div'):
+            if div.get('class') and 'statistiki' in div.get('class'):
+                statistiki = div
+                break
+        if statistiki:
+            text_div = None
+            for child in statistiki.find_all('div'):
+                if child.get('class') and 'text' in child.get('class'):
+                    text_div = child
+                    break
+            if text_div:
+                txt = text_div.get_text()
+                patterns = [
+                    r'Редактирана в ([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4}) год\.',
+                    r'Публикувана в ([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4}) год\.',
+                    r'([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4})',
+                    r'([0-9]{2}\.[0-9]{2}\.[0-9]{4})',
+                ]
+                for pat in patterns:
+                    match = re.search(pat, txt)
+                    if match:
+                        if len(match.groups()) == 2:
+                            time_str = match.group(1)
+                            date_str = match.group(2)
+                            day, month, year = date_str.split('.')
+                            return f"{year}-{month}-{day} {time_str}:00"
+                        elif len(match.groups()) == 1:
+                            date_str = match.group(1)
+                            day, month, year = date_str.split('.')
+                            return f"{year}-{month}-{day}"
+                match = re.search(r'([0-9]{2}\.[0-9]{2}\.[0-9]{4})', txt)
+                if match:
+                    day, month, year = match.group(1).split('.')
+                    return f"{year}-{month}-{day}"
+        return None
+
     def _looks_like_car_listing(self, element) -> bool:
         """Check if an element looks like a car listing"""
         if not element:
