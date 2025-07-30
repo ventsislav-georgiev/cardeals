@@ -10,16 +10,21 @@ class CarDBHandler(BaseHTTPRequestHandler):
             rows = cardb.get_all_cars()
             cars = []
             for row in rows:
-                # id, link, data, status, last_seen, removed_date, created_date
-                car_id, link, data, status, last_seen, removed_date, created_date = row
+                # row is a dict: id, link, data, status, last_seen, removed_date, created_date
                 try:
-                    car_dict = json.loads(data)
+                    car_dict = json.loads(row.get('data', '')) if row.get('data') else {}
                 except Exception:
                     car_dict = {}
-                car_dict['status'] = status
-                car_dict['last_seen'] = last_seen
-                car_dict['removed_date'] = removed_date
-                car_dict['created_date'] = created_date
+                car_dict.setdefault('id', row.get('id'))
+                car_dict.setdefault('listing_url', row.get('link'))
+                car_dict['status'] = row.get('status', '')
+                car_dict['last_seen'] = row.get('last_seen', '')
+                car_dict['removed_date'] = row.get('removed_date', '')
+                car_dict['created_date'] = row.get('created_date', '')
+                for key in ['brand', 'model', 'year', 'price', 'currency', 'kilometers', 'location', 'image_urls']:
+                    car_dict.setdefault(key, '')
+                if not isinstance(car_dict.get('image_urls'), list):
+                    car_dict['image_urls'] = []
                 cars.append(car_dict)
             results = {
                 'search_params': {},

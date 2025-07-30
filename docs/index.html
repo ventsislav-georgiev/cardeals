@@ -76,7 +76,9 @@
         <option value="price">Price</option>
         <option value="year">Year</option>
         <option value="kilometers">Kilometers</option>
+        <option value="created_date">Created</option>
       </select>
+      <button class="sort-select" id="toggle-saved" style="margin-left: 20px;">Show Saved Only</button>
     </div>
     <div class="car-list" id="car-list"></div>
   </div>
@@ -163,6 +165,50 @@
       return km.toLocaleString();
     }
 
+    function getCarId(car) {
+      // Use a unique identifier for each car (listing_url or brand+model+year+price)
+      return car.listing_url || `${car.brand || ''}_${car.model || ''}_${car.year || ''}_${car.price || ''}`;
+    }
+
+    function getSavedCarIds() {
+      try {
+        return JSON.parse(localStorage.getItem('savedCars') || '[]');
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function setSavedCarIds(ids) {
+      localStorage.setItem('savedCars', JSON.stringify(ids));
+    }
+
+    function isCarSaved(car) {
+      const id = getCarId(car);
+      const saved = getSavedCarIds();
+      return saved.includes(id);
+    }
+
+    function toggleSaveCar(car) {
+      const id = getCarId(car);
+      let saved = getSavedCarIds();
+      if (saved.includes(id)) {
+        saved = saved.filter(x => x !== id);
+      } else {
+        saved.push(id);
+      }
+      setSavedCarIds(saved);
+    }
+
+    function cleanSavedCars(cars) {
+      // Remove saved cars not present in loaded cars
+      const validIds = new Set(cars.map(getCarId));
+      let saved = getSavedCarIds();
+      const cleaned = saved.filter(id => validIds.has(id));
+      if (cleaned.length !== saved.length) {
+        setSavedCarIds(cleaned);
+      }
+    }
+
     function renderCars(cars) {
       list.innerHTML = '';
       if (!cars.length) {
@@ -183,15 +229,11 @@
         const brand = car.brand || '';
         const model = car.model || '';
         const year = car.year || '';
-        
         let titleHtml = `${brand} ${model}`.trim();
         if (year) {
           titleHtml += ` <span class="car-year">${year}</span>`;
         }
-        
-        // Split long titles into multiple lines (max 30 chars per line) - but preserve HTML
         if (titleHtml.length > 30) {
-          // For long titles, we'll let CSS handle the wrapping
           title.innerHTML = titleHtml;
         } else {
           title.innerHTML = titleHtml;
@@ -204,8 +246,6 @@
         info.innerHTML =
           (car.price ? `<b>Price:</b> <span class="car-price">${car.price} ${car.currency || ''}</span><br>` : '') +
           (car.kilometers ? `<b>KM:</b> <span class="${kmColorClass}">${formattedKm}</span><br>` : '') +
-          // (car.engine_type ? `<b>Engine:</b> ${car.engine_type}<br>` : '') +
-          // (car.gearbox_type ? `<b>Gearbox:</b> ${car.gearbox_type}<br>` : '') +
           (car.location ? `<b>Location:</b> ${car.location}<br>` : '') +
           (car.created_date ? `<b>Created:</b> ${car.created_date.split(' ')[0]}<br>` : '') +
           (car.removed_date ? `<b>Removed:</b> ${car.removed_date}<br>` : '');
@@ -224,11 +264,34 @@
           status.textContent = `Status: ${car.status}`;
           card.appendChild(status);
         }
+        // Add Save/Unsave button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'sort-select';
+        saveBtn.style.marginTop = '10px';
+        saveBtn.textContent = isCarSaved(car) ? 'Unsave' : 'Save';
+        saveBtn.onclick = function() {
+          toggleSaveCar(car);
+          updateCarDisplay();
+        };
+        card.appendChild(saveBtn);
         list.appendChild(card);
       });
     }
 
     function sortCars(cars, by) {
+      if (by === 'created_date') {
+        return cars.slice().sort((a, b) => {
+          // Sort descending by created_date (newest first)
+          let va = a.created_date || '';
+          let vb = b.created_date || '';
+          // Accept YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
+          // Fallback to empty string if missing
+          // Parse as Date for robust comparison
+          let da = va ? new Date(va.replace(' ', 'T')) : new Date(0);
+          let db = vb ? new Date(vb.replace(' ', 'T')) : new Date(0);
+          return db - da;
+        });
+      }
       return cars.slice().sort((a, b) => {
         let va = a[by] ?? Infinity;
         let vb = b[by] ?? Infinity;
@@ -238,8 +301,14 @@
       });
     }
 
+    let showSavedOnly = false;
     function updateCarDisplay() {
-      const filteredCars = filterCarsByYear(allCars, currentYearFilter);
+      let cars = allCars;
+      if (showSavedOnly) {
+        const savedIds = new Set(getSavedCarIds());
+        cars = cars.filter(car => savedIds.has(getCarId(car)));
+      }
+      const filteredCars = filterCarsByYear(cars, currentYearFilter);
       const sortedCars = sortCars(filteredCars, currentSort);
       renderCars(sortedCars);
       updateUrl();
@@ -252,6 +321,7 @@
       .then(r => r.json())
       .then(data => {
         allCars = data.cars || [];
+        cleanSavedCars(allCars);
         updateCarDisplay();
       });
 
@@ -262,6 +332,14 @@
 
     yearFilterSelect.addEventListener('change', function() {
       currentYearFilter = yearFilterSelect.value;
+      updateCarDisplay();
+    });
+
+    // Toggle saved only view
+    const toggleSavedBtn = document.getElementById('toggle-saved');
+    toggleSavedBtn.addEventListener('click', function() {
+      showSavedOnly = !showSavedOnly;
+      toggleSavedBtn.textContent = showSavedOnly ? 'Show All' : 'Show Saved Only';
       updateCarDisplay();
     });
 
