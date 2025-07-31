@@ -168,6 +168,7 @@ class MobileBgScraper(BaseScraper):
         cars = []
         try:
             selectors = [
+                'div.item',  # Primary mobile.bg selector (current structure)
                 'div.l',
                 'div.o',
                 'div#content div.l',
@@ -240,7 +241,179 @@ class MobileBgScraper(BaseScraper):
         return deduped_cars
 
     def extract_created_date(self, soup: BeautifulSoup) -> Optional[str]:
-        """Extract the created/edited date from the car detail page HTML. Returns None if not found."""
+        """Extract created date from price history via AJAX or fallback patterns"""
+        import requests
+        import json
+        from urllib.parse import quote
+        from datetime import datetime
+        
+        # First try to get price history via AJAX
+        try:
+            # Extract listing ID from page URL or content
+            listing_id = None
+            
+            # Look for listing ID in the page
+            id_patterns = [
+                r'obiava-(\d+)-',  # from URL
+                r'ida[\'"]?\s*:\s*[\'"]?(\d+)',  # from JavaScript
+                r'listing.*?(\d{20})',  # long number pattern
+            ]
+            
+            page_content = str(soup)
+            for pattern in id_patterns:
+                match = re.search(pattern, page_content)
+                if match:
+                    listing_id = match.group(1)
+                    break
+            
+            if listing_id:
+                # Try to extract current price for AJAX call
+                current_price = "0"
+                price_elements = soup.find_all(text=re.compile(r'\d+\s*лв'))
+                if price_elements:
+                    price_text = str(price_elements[0])
+                    price_match = re.search(r'(\d+)', price_text)
+                    if price_match:
+                        current_price = price_match.group(1)
+                
+                # Make AJAX request to get price history
+                ajax_session = requests.Session()
+                ajax_session.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                })
+                
+                params = {
+                    'act': '3',
+                    'ida': listing_id,
+                    'pr': quote(current_price),
+                    'cr': quote('лв.'),
+                    'mode': '1'
+                }
+                
+                response = ajax_session.post("https://www.mobile.bg/pcgi/subscript.cgi", 
+                                           data=params, timeout=10)
+                
+                if response.status_code == 200:
+                    json_data = json.loads(response.text)
+                    if json_data.get('result') == 1 and 'table' in json_data:
+                        table_html = json_data['table']
+                        
+                        # Parse the price history table
+                        table_soup = BeautifulSoup(table_html, 'html.parser')
+                        divs = table_soup.find_all('div')
+                        
+                        dates_with_times = []
+                        
+                        for div in divs:
+                            text = div.get_text(strip=True)
+                            # Look for date-time patterns: "DD.MM в HH.MM ч."
+                            date_time_match = re.match(r'(\d{2})\.(\d{2})\s+в\s+(\d{2})\.(\d{2})\s+ч\.', text)
+                            if date_time_match:
+                                day = int(date_time_match.group(1))
+                                month = int(date_time_match.group(2))
+                                hour = int(date_time_match.group(3))
+                                minute = int(date_time_match.group(4))
+                                dates_with_times.append((month, day, hour, minute, text))
+                        
+                        if dates_with_times:
+                            # Sort by month, day, then time to find the earliest
+                            earliest = min(dates_with_times, key=lambda x: (x[0], x[1], x[2], x[3]))
+                            
+                            # Find fallback year from other parts of the page
+                            fallback_year = None
+                            fallback_patterns = [
+                                r'Редактирана в [^н]+ на [^г]+(\d{4}) год\.',
+                                r'Публикувана в [^н]+ на [^г]+(\d{4}) год\.',
+                                r'(\d{4}) год\.',
+                            ]
+                            
+                            for div in soup.find_all('div'):
+                                if not isinstance(div, Tag):
+                                    continue
+                                div_text = div.get_text()
+                                for pat in fallback_patterns:
+                                    match = re.search(pat, div_text)
+                                    if match:
+                                        fallback_year = match.group(1)
+                                        break
+                                if fallback_year:
+                                    break
+                            
+                            if not fallback_year:
+                                # Default to current year if no fallback found
+                                fallback_year = str(datetime.now().year)
+                            
+                            month, day, hour, minute = earliest[:4]
+                            
+                            return f"{fallback_year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:00"
+        
+        except Exception as e:
+            pass  # Fall back to static extraction
+        
+        # Fallback to original extraction logic
+        return self._extract_created_date_fallback(soup)
+
+    def _extract_created_date_fallback(self, soup: BeautifulSoup) -> Optional[str]:
+        """Fallback method for extracting created date from static HTML"""
+        # First try to find price history
+        price_history_div = soup.find('div', id='priceHistory')
+        statistiki_tag = None
+        
+        if price_history_div and isinstance(price_history_div, Tag):
+            for child in price_history_div.children:
+                if isinstance(child, Tag) and child.name == 'statistiki':
+                    statistiki_tag = child
+                    break
+        
+        if statistiki_tag and isinstance(statistiki_tag, Tag):
+            divs = [d for d in statistiki_tag.find_all('div') if isinstance(d, Tag)]
+            dates_with_times = []
+            
+            for div in divs:
+                text = div.get_text(strip=True)
+                # Look for date-time patterns: "DD.MM в HH.MM ч."
+                date_time_match = re.match(r'(\d{2})\.(\d{2})\s+в\s+(\d{2})\.(\d{2})\s+ч\.', text)
+                if date_time_match:
+                    day = int(date_time_match.group(1))
+                    month = int(date_time_match.group(2))
+                    hour = int(date_time_match.group(3))
+                    minute = int(date_time_match.group(4))
+                    dates_with_times.append((month, day, hour, minute, text))
+            
+            if dates_with_times:
+                # Sort to find the earliest date/time
+                earliest = min(dates_with_times, key=lambda x: (x[0], x[1], x[2], x[3]))
+                
+                # Look for fallback year and time in the page
+                fallback_year = None
+                fallback_patterns = [
+                    r'Редактирана в [^н]+ на [^г]+(\d{4}) год\.',
+                    r'Публикувана в [^н]+ на [^г]+(\d{4}) год\.',
+                    r'(\d{4}) год\.',
+                ]
+                
+                for div in soup.find_all('div'):
+                    if not isinstance(div, Tag):
+                        continue
+                    div_text = div.get_text()
+                    for pat in fallback_patterns:
+                        match = re.search(pat, div_text)
+                        if match:
+                            fallback_year = match.group(1)
+                            break
+                    if fallback_year:
+                        break
+                
+                if not fallback_year:
+                    from datetime import datetime
+                    fallback_year = str(datetime.now().year)
+                
+                month, day, hour, minute = earliest[:4]
+                return f"{fallback_year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:00"
+        
+        # Final fallback to basic pattern matching
         import re
         statistiki = None
         for div in soup.find_all('div'):
@@ -256,8 +429,8 @@ class MobileBgScraper(BaseScraper):
             if text_div:
                 txt = text_div.get_text()
                 patterns = [
-                    r'Редактирана в ([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4}) год\.',
-                    r'Публикувана в ([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4}) год\.',
+                    r'Публикувана в ([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4}) год\.',  # Prioritize original publication date
+                    r'Редактирана в ([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4}) год\.',  # Fallback to edited date
                     r'([0-9]{2}:[0-9]{2}) часа на ([0-9]{2}\.[0-9]{2}\.[0-9]{4})',
                     r'([0-9]{2}\.[0-9]{2}\.[0-9]{4})',
                 ]
@@ -457,29 +630,36 @@ class MobileBgScraper(BaseScraper):
     
     def parse_car_title(self, title: str) -> tuple[str, str, Optional[int]]:
         """Parse car title to extract brand, model, and year"""
+        # First, try to find year anywhere in the title (including with slashes)
+        import re
+        year = None
+        year_match = re.search(r'\b(19[8-9]\d|20[0-3]\d)\b', title)
+        if year_match:
+            year = int(year_match.group(1))
+        
+        # Split by spaces for parsing brand and model
         parts = title.split()
         
         # Default values
         brand = parts[0] if parts else "Unknown"
         model = "Unknown"
-        year = None
         
         if len(parts) > 1:
-            # Look for year (4-digit number)
-            year_indices = []
-            for i, part in enumerate(parts):
-                if part.isdigit() and len(part) == 4:
-                    year_candidate = int(part)
-                    if 1980 <= year_candidate <= 2030:
-                        year = year_candidate
-                        year_indices.append(i)
-                        break
-            
-            # Build model from remaining parts (excluding brand and year)
+            # Extract model (everything except brand and year)
             model_parts = []
-            for i, part in enumerate(parts[1:], 1):
-                if i not in year_indices:
-                    model_parts.append(part)
+            for part in parts[1:]:
+                # Skip parts that contain the year we found
+                if year and str(year) in part:
+                    # Remove the year from this part
+                    part_without_year = re.sub(rf'\b{year}\b', '', part)
+                    # Clean up any remaining slashes or empty parts
+                    part_without_year = re.sub(r'/+', '/', part_without_year).strip('/')
+                    if part_without_year:
+                        model_parts.append(part_without_year)
+                else:
+                    # Also check if this part is just a standalone year
+                    if not (part.isdigit() and len(part) == 4 and 1980 <= int(part) <= 2030):
+                        model_parts.append(part)
             
             if model_parts:
                 model = " ".join(model_parts)

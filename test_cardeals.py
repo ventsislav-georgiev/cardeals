@@ -5,6 +5,7 @@ Tests both the scraper functionality and CLI integration.
 """
 
 import unittest
+from bs4 import BeautifulSoup
 import sys
 import os
 import json
@@ -20,6 +21,23 @@ from scrapers.mobile_bg import MobileBgScraper
 
 
 class TestMobileBgScraper(unittest.TestCase):
+    def test_extract_created_date_fallback(self):
+        """Test that extract_created_date uses fallback statistiki date when price history is empty."""
+        html = '''
+        <html>
+        <body>
+            <div class="priceHistory" id="priceHistory">
+                <statistiki></statistiki>
+            </div>
+            <div class="statistiki">
+                <div class="text">Редактирана в 13:01 часа на 15.07.2025 год.<br></div>
+            </div>
+        </body>
+        </html>
+        '''
+        soup = BeautifulSoup(html, 'html.parser')
+        date = self.scraper.extract_created_date(soup)
+        self.assertEqual(date, "2025-07-15 13:01:00")
     """Test suite for mobile.bg scraper functionality."""
     
     def setUp(self):

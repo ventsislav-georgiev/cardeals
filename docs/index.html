@@ -62,14 +62,35 @@
   <div class="container">
     <h1>All Cars in Database</h1>
     <div class="sort-bar">
-      <label class="sort-label" for="year-filter">Min Year:</label>
+      <label class="sort-label" for="year-filter">Year:</label>
       <select class="sort-select" id="year-filter">
         <option value="all">All</option>
+        <option value="2019">2019</option>
         <option value="2020">2020</option>
         <option value="2021">2021</option>
         <option value="2022">2022</option>
         <option value="2023">2023</option>
         <option value="2024">2024</option>
+        <option value="2025">2025</option>
+      </select>
+      <label class="sort-label" for="min-price-filter" style="margin-left: 20px;">Min Price:</label>
+      <select class="sort-select" id="min-price-filter">
+        <option value="all">All</option>
+        <option value="30000">30,000</option>
+        <option value="35000">35,000</option>
+        <option value="40000">40,000</option>
+        <option value="45000">45,000</option>
+        <option value="50000">50,000</option>
+        <option value="55000">55,000</option>
+        <option value="60000">60,000</option>
+      </select>
+      <label class="sort-label" for="max-km-filter" style="margin-left: 20px;">Max KM:</label>
+      <select class="sort-select" id="max-km-filter">
+        <option value="all">All</option>
+        <option value="50000">50,000</option>
+        <option value="100000">100,000</option>
+        <option value="150000">150,000</option>
+        <option value="200000">200,000</option>
       </select>
       <label class="sort-label" for="sort-by" style="margin-left: 20px;">Sort by:</label>
       <select class="sort-select" id="sort-by">
@@ -78,24 +99,34 @@
         <option value="kilometers">Kilometers</option>
         <option value="created_date">Created</option>
       </select>
+      <button class="sort-select" id="sort-direction" style="margin-left: 10px;">Asc</button>
       <button class="sort-select" id="toggle-saved" style="margin-left: 20px;">Show Saved Only</button>
     </div>
     <div class="car-list" id="car-list"></div>
   </div>
   <script>
-    let allCars = [];
-    let currentSort = 'price';
-    let currentYearFilter = 'all';
-    const list = document.getElementById('car-list');
-    const sortSelect = document.getElementById('sort-by');
-    const yearFilterSelect = document.getElementById('year-filter');
+  let allCars = [];
+  let currentSort = 'price';
+  let currentYearFilter = 'all';
+  let currentMaxKmFilter = 'all';
+  let currentMinPriceFilter = 'all';
+  let currentSortDirection = 'asc';
+  const list = document.getElementById('car-list');
+  const sortSelect = document.getElementById('sort-by');
+  const yearFilterSelect = document.getElementById('year-filter');
+  const minPriceFilterSelect = document.getElementById('min-price-filter');
+  const maxKmFilterSelect = document.getElementById('max-km-filter');
+  const sortDirectionBtn = document.getElementById('sort-direction');
 
     // Function to get URL parameters
     function getUrlParams() {
       const params = new URLSearchParams(window.location.search);
       return {
         sort: params.get('sort') || 'price',
-        year: params.get('year') || 'all'
+        year: params.get('year') || 'all',
+        min_price: params.get('min_price') || 'all',
+        max_km: params.get('max_km') || 'all',
+        direction: params.get('direction') || 'asc'
       };
     }
 
@@ -108,23 +139,35 @@
       if (currentYearFilter !== 'all') {
         params.set('year', currentYearFilter);
       }
-      
+      if (currentMinPriceFilter !== 'all') {
+        params.set('min_price', currentMinPriceFilter);
+      }
+      if (currentMaxKmFilter !== 'all') {
+        params.set('max_km', currentMaxKmFilter);
+      }
+      if (currentSortDirection !== 'asc') {
+        params.set('direction', currentSortDirection);
+      }
       const newUrl = params.toString() ? 
         `${window.location.pathname}?${params.toString()}` : 
         window.location.pathname;
-      
       window.history.replaceState({}, '', newUrl);
     }
 
     // Initialize from URL parameters
     function initializeFromUrl() {
-      const urlParams = getUrlParams();
-      currentSort = urlParams.sort;
-      currentYearFilter = urlParams.year;
-      
-      // Set dropdown values
-      sortSelect.value = currentSort;
-      yearFilterSelect.value = currentYearFilter;
+  const urlParams = getUrlParams();
+  currentSort = urlParams.sort;
+  currentYearFilter = urlParams.year;
+  currentMinPriceFilter = urlParams.min_price;
+  currentMaxKmFilter = urlParams.max_km;
+  currentSortDirection = urlParams.direction;
+  // Set dropdown values
+  sortSelect.value = currentSort;
+  yearFilterSelect.value = currentYearFilter;
+  minPriceFilterSelect.value = currentMinPriceFilter;
+  maxKmFilterSelect.value = currentMaxKmFilter;
+  sortDirectionBtn.textContent = currentSortDirection === 'asc' ? 'Asc' : 'Desc';
     }
 
     function filterCarsByYear(cars, yearFilter) {
@@ -134,7 +177,31 @@
       const filterYear = parseInt(yearFilter);
       return cars.filter(car => {
         const carYear = parseInt(car.year);
-        return !isNaN(carYear) && carYear >= filterYear;
+        return !isNaN(carYear) && carYear === filterYear;
+      });
+    }
+
+    function filterCarsByMinPrice(cars, minPriceFilter) {
+      if (minPriceFilter === 'all') {
+        return cars;
+      }
+      const minPrice = parseInt(minPriceFilter);
+      return cars.filter(car => {
+        if (!car.price) return false;
+        const price = parseInt(car.price.toString().replace(/\D/g, ''));
+        return !isNaN(price) && price >= minPrice;
+      });
+    }
+
+    function filterCarsByMaxKm(cars, maxKmFilter) {
+      if (maxKmFilter === 'all') {
+        return cars;
+      }
+      const maxKm = parseInt(maxKmFilter);
+      return cars.filter(car => {
+        if (!car.kilometers) return false;
+        const km = parseInt(car.kilometers.toString().replace(/\D/g, ''));
+        return !isNaN(km) && km <= maxKm;
       });
     }
 
@@ -279,26 +346,28 @@
     }
 
     function sortCars(cars, by) {
+      let sorted;
       if (by === 'created_date') {
-        return cars.slice().sort((a, b) => {
-          // Sort descending by created_date (newest first)
+        sorted = cars.slice().sort((a, b) => {
           let va = a.created_date || '';
           let vb = b.created_date || '';
-          // Accept YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
-          // Fallback to empty string if missing
-          // Parse as Date for robust comparison
           let da = va ? new Date(va.replace(' ', 'T')) : new Date(0);
           let db = vb ? new Date(vb.replace(' ', 'T')) : new Date(0);
-          return db - da;
+          return da - db;
+        });
+      } else {
+        sorted = cars.slice().sort((a, b) => {
+          let va = a[by] ?? Infinity;
+          let vb = b[by] ?? Infinity;
+          if (typeof va === 'string') va = parseInt(va.replace(/\D/g, '')) || Infinity;
+          if (typeof vb === 'string') vb = parseInt(vb.replace(/\D/g, '')) || Infinity;
+          return va - vb;
         });
       }
-      return cars.slice().sort((a, b) => {
-        let va = a[by] ?? Infinity;
-        let vb = b[by] ?? Infinity;
-        if (typeof va === 'string') va = parseInt(va.replace(/\D/g, '')) || Infinity;
-        if (typeof vb === 'string') vb = parseInt(vb.replace(/\D/g, '')) || Infinity;
-        return va - vb;
-      });
+      if (currentSortDirection === 'desc') {
+        sorted.reverse();
+      }
+      return sorted;
     }
 
     let showSavedOnly = false;
@@ -308,10 +377,12 @@
         const savedIds = new Set(getSavedCarIds());
         cars = cars.filter(car => savedIds.has(getCarId(car)));
       }
-      const filteredCars = filterCarsByYear(cars, currentYearFilter);
-      const sortedCars = sortCars(filteredCars, currentSort);
-      renderCars(sortedCars);
-      updateUrl();
+  let filteredCars = filterCarsByYear(cars, currentYearFilter);
+  filteredCars = filterCarsByMinPrice(filteredCars, currentMinPriceFilter);
+  filteredCars = filterCarsByMaxKm(filteredCars, currentMaxKmFilter);
+  const sortedCars = sortCars(filteredCars, currentSort);
+  renderCars(sortedCars);
+  updateUrl();
     }
 
     // Initialize from URL parameters
@@ -326,13 +397,31 @@
       });
 
     sortSelect.addEventListener('change', function() {
-      currentSort = sortSelect.value;
-      updateCarDisplay();
+  currentSort = sortSelect.value;
+  updateCarDisplay();
     });
 
     yearFilterSelect.addEventListener('change', function() {
       currentYearFilter = yearFilterSelect.value;
       updateCarDisplay();
+
+    });
+
+    minPriceFilterSelect.addEventListener('change', function() {
+      currentMinPriceFilter = minPriceFilterSelect.value;
+      updateCarDisplay();
+
+    });
+
+    maxKmFilterSelect.addEventListener('change', function() {
+      currentMaxKmFilter = maxKmFilterSelect.value;
+      updateCarDisplay();
+        });
+
+        sortDirectionBtn.addEventListener('click', function() {
+          currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+          sortDirectionBtn.textContent = currentSortDirection === 'asc' ? 'Asc' : 'Desc';
+          updateCarDisplay();
     });
 
     // Toggle saved only view
